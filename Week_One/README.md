@@ -1,22 +1,36 @@
--- Step 1: Create composite type
+-- ============================================================
+--  Actor Dimensional Modeling - Week 1
+--  Author: Duncan Otieno
+--  Description: Create dimensional actor table with composite type
+--               and populate it from actor_films dataset.
+-- ============================================================
+
+-- Step 0: Make script rerunnable (idempotent)
+DROP TABLE IF EXISTS actors;
+DROP TYPE IF EXISTS film_info;
+
+-- Step 1: Create composite type (struct) for film details
 CREATE TYPE film_info AS (
     film TEXT,
     votes INT,
-    rating FLOAT,
+    rating DOUBLE PRECISION,
     filmid TEXT
 );
 
--- Step 2: Create dimensional table
-DROP TABLE IF EXISTS actors;
+-- Step 2: Create dimensional actors table
 CREATE TABLE actors (
     actor_id TEXT PRIMARY KEY,
-    films film_info[],
-    quality_class TEXT,
-    is_active BOOLEAN
+    films film_info[] NOT NULL,  -- array of structured film data
+    quality_class TEXT NOT NULL,
+    is_active BOOLEAN NOT NULL,
+    CONSTRAINT quality_class_chk CHECK (
+        quality_class IN ('star', 'good', 'average', 'bad')
+    )
 );
 
--- Step 3 & 4: Use CTEs to transform and insert data
+-- Step 3: Use CTEs to identify most recent year and compute metrics
 WITH latest_year AS (
+    -- Get the most recent film year for each actor
     SELECT 
         actorid,
         MAX(year) AS latest_year
@@ -24,21 +38,36 @@ WITH latest_year AS (
     GROUP BY actorid
 ),
 actor_summary AS (
+    -- Aggregate film data and derive quality classification
     SELECT 
         af.actorid,
-        ARRAY_AGG(ROW(af.film, af.votes, af.rating, af.filmid)::film_info) AS films,
+        
+        -- Deterministic array ordering: latest year first, then by votes
+        ARRAY_AGG(
+            ROW(af.film, af.votes, af.rating, af.filmid)::film_info
+            ORDER BY af.year DESC, af.votes DESC, af.filmid
+        ) AS films,
+
+        -- Compute quality_class based on latest year's average rating
         CASE 
-            WHEN AVG(af.rating) FILTER (WHERE af.year = ly.latest_year) > 8 THEN 'star'
-            WHEN AVG(af.rating) FILTER (WHERE af.year = ly.latest_year) > 7 THEN 'good'
-            WHEN AVG(af.rating) FILTER (WHERE af.year = ly.latest_year) > 6 THEN 'average'
+            WHEN COALESCE(AVG(af.rating) FILTER (WHERE af.year = ly.latest_year), 0) >= 8 THEN 'star'
+            WHEN COALESCE(AVG(af.rating) FILTER (WHERE af.year = ly.latest_year), 0) >= 7 THEN 'good'
+            WHEN COALESCE(AVG(af.rating) FILTER (WHERE af.year = ly.latest_year), 0) >= 6 THEN 'average'
             ELSE 'bad'
         END AS quality_class,
-        BOOL_OR(af.year = EXTRACT(YEAR FROM CURRENT_DATE)) AS is_active
+
+        -- Check if actor made a film in the current year
+        BOOL_OR(af.year = EXTRACT(YEAR FROM CURRENT_DATE)::INT) AS is_active
+
     FROM actor_films af
-    JOIN latest_year ly
-    ON af.actorid = ly.actorid
-    GROUP BY af.actorid, ly.latest_year
+    JOIN latest_year ly USING (actorid)
+    GROUP BY af.actorid
 )
+
+-- Step 4: Insert transformed data into dimensional table
 INSERT INTO actors (actor_id, films, quality_class, is_active)
 SELECT actorid, films, quality_class, is_active
 FROM actor_summary;
+
+-- Optional: Verify loaded data
+-- SELECT * FROM actors LIMIT 5;

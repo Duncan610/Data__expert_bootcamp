@@ -1,8 +1,13 @@
 -- ============================================================
+
 --  Actor Dimensional Modeling - Week 1
+
 --  Author: Duncan Otieno
+
 --  Description: Create dimensional actor table with composite type
+
 --               and populate it from actor_films dataset.
+
 -- ============================================================
 
 -- Step 0: Make script rerunnable (idempotent)

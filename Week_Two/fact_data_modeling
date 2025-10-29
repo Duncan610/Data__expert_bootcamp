@@ -1,1 +1,13 @@
+## Deduplication of game_details
 
+WITH deduped AS(
+  SELECT *,
+  ROW_NUMBER() OVER(
+    PARTITION BY(game_id, player_id
+    ORDER BY game_id
+  ) AS rn
+  FROM game_duplicates
+)
+SELECT * 
+FROM deduped
+WHERE rn = 1;
